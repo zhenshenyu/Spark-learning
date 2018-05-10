@@ -1,4 +1,4 @@
-### Spark调优资料
+### Spark调优
 #### 开发调优
 - 原则一：避免创建重复的RDD
 - 原则二：尽可能复用同一个RDD
@@ -33,3 +33,46 @@
 
 
 #### 数据倾斜调优
+
+
+- 通过Spark Web UI/History Server查看各个stage中每个task的shuffle read和shuffle write数据量，是否分布不均
+- 解决方案
+  - 使用使用Hive ETL预处理数据（预处理过程中还是会发生数据倾斜）
+  - 过滤导致数据倾斜的key
+  - 提高shuffle并行度（极端情况并没有什么用）
+  - 局部聚合+全局聚合，reducebykey或sql中的group by操作进行分组聚合时，非常适用。
+  - join类操作时，使用广播
+  - 使用随机前缀和扩容RDD进行join
+   - 该方案的实现思路基本和“解决方案六”类似，首先查看RDD/Hive表中的数据分布情况，找到那个造成数据倾斜的RDD/Hive表，比如有多个key都对应了超过1万条数据。
+   -  然后将该RDD的每条数据都打上一个n以内的随机前缀。
+   -  同时对另外一个正常的RDD进行扩容，将每条数据都扩容成n条数据，扩容出来的每条数据都依次打上一个0~n的前缀。
+   -  最后将两个处理后的RDD进行join即可。
+
+
+### 其他知识点
+#### DAGscheduler
+- 在一个action操作触发一个job时，从action的rdd开始，生成final stage
+- 使用递归遍历所有父Rdd，根据宽依赖来划分不同stage
+
+#### TASKscheduler
+- 每个stage包含一个taskset
+- 一个taskset有若干task，每个task执行一样的操作，操作数据不同。
+
+#### BlockManager
+BlockManager负责实际的存储管理（BlockStore的三个实现，DickStore、MemoryStore、TachyonStore）
+- driver BlockManagerMaster
+- executor BlockManager负责管理executor的
+- 数据读入，先看本地的block是否存在，否则通过rpc框架进行远程获取
+- rdd的eviction
+- shuffle时的数据管理
+
+SparkSession
+
+### Spark SQL流程
+
+- 通过Parser模块被解析为语法树
+- 语法树借助于Catalog中的表信息解析为Logical Plan
+- Optimizer再通过各种基于规则的优化策略进行深入优化，得到Optimized Logical Plan
+- 将此逻辑执行计划转换为Physical Plan
+
+##### Catalyst框架进行查询优化
